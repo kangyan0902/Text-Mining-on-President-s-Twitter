@@ -1,0 +1,341 @@
+---
+title: "Sentiment Analysis"
+author: "Yan Kang"
+date: "2019/2/26"
+output: pdf_document
+---
+
+```{r, echo=FALSE, results='hide', include=FALSE}
+library(dplyr)
+library(tm)
+library(wordcloud)
+library(tidyverse)
+library(lubridate)
+library(tidyr)
+library(tidytext)
+
+url <- 'http://www.trumptwitterarchive.com/data/realdonaldtrump/%s.json'
+
+trump<- map(2015:2019, ~sprintf(url, .x)) %>%
+  map_df(jsonlite::fromJSON, simplifyDataFrame = TRUE) %>%
+  mutate(created_at = parse_date_time(created_at, "a b! d! H!:M!:S! z!* Y!")) %>%
+  tbl_df()
+
+campaigndf <- trump %>% filter(created_at > "2015-6-16") %>% filter(is_retweet == FALSE) %>% filter(created_at < "2016-11-08")
+
+## Omit varaibles not useful at this time
+campaign <- campaigndf %>% select(text, favorite_count, created_at, retweet_count)
+```
+
+```{r, echo=FALSE, results='hide', include=FALSE}
+myCorpus <- Corpus(VectorSource(campaign$text))
+myCorpus <- tm_map(myCorpus, tolower)
+removeURL <- function(x) gsub("http[^[:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, removeURL)
+myCorpus <- tm_map(myCorpus, removeWords, stopwords("en"))
+removeNumPunct <- function(x) gsub("[^[:alpha:][:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, removeNumPunct)
+myCorpus <- tm_map(myCorpus, stemDocument)
+# replace ending "i" with "y"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "i |i$", replacement = "y ")
+#correct "peopl" to "people"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "peopl", replacement = "people")
+#correct "hundr" to "hundred"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "hundr", replacement = "hundred")
+
+#correct "presid" to "president"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "presid", replacement = "president")
+
+myCorpus <- tm_map(myCorpus, removeWords, c(stopwords("english"), "now", "will", "amp", "dont", "thank", "just", "realdonaldtrump", "many", "like", "get", "even"))
+
+myCorpusCopy <- myCorpus 
+```
+
+```{r, echo=FALSE, results='hide', include=FALSE}
+presidentdf <-  trump %>% filter(is_retweet == FALSE) %>% filter(created_at >= "2016-11-08")
+president <-  presidentdf %>% select(text, favorite_count, created_at, retweet_count)
+
+myCorpus <- Corpus(VectorSource(president$text))
+myCorpus <- tm_map(myCorpus, tolower)
+removeURL <- function(x) gsub("http[^[:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, removeURL)
+myCorpus <- tm_map(myCorpus, removeWords, stopwords("en"))
+removeNumPunct <- function(x) gsub("[^[:alpha:][:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, removeNumPunct)
+myCorpus <- tm_map(myCorpus, stemDocument)
+# replace ending "i" with "y"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "i |i$", replacement = "y ")
+#correct "peopl" to "people"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "peopl", replacement = "people")
+#correct "hundr" to "hundred"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "hundr", replacement = "hundred")
+
+#correct "presid" to "president"
+myCorpus <- tm_map(myCorpus, content_transformer(gsub), pattern = "presid", replacement = "president")
+
+myCorpus <- tm_map(myCorpus, removeWords, c(stopwords("english"), "now", "will", "amp", "dont", "thank", "just", "realdonaldtrump", "many", "like", "get", "even"))
+
+myCorpusCopy <- myCorpus 
+```
+
+
+# Sentiment Analysis
+
+In order to not make the file too complicated and more easier to see. We decided to split our work into two files. This part of the file will be mainly focusing on sentiment analysis. 
+
+We first want to know what is president Trump's mood while he was in campaign. Our first impression while he was in campaign would be anger. He was aruguing harshly with Hillary Clinton while debating. We assumed that his anger will be shown on his twitter. 
+
+
+```{r}
+library(syuzhet)
+
+campaign_text <- campaigndf$text
+
+nrc_data_campaign <- get_nrc_sentiment(campaign_text)
+
+#Angry tweets
+angry_items <- which(nrc_data_campaign$anger > 0)
+
+#Anticipation tweets
+anticipation_items <- which(nrc_data_campaign$anticipation > 0)
+
+#disgust tweets
+disgust_items <- which(nrc_data_campaign$disgust > 0)
+
+#Joy tweets
+joy_items <- which(nrc_data_campaign$joy > 0)
+
+#Sadness tweets
+sadness_items <- which(nrc_data_campaign$sadness > 0)
+
+#Suprise tweets
+surprise_items <- which(nrc_data_campaign$surprise > 0)
+
+#Trust tweets
+trust_items <- which(nrc_data_campaign$trust > 0)
+
+barplot(
+  sort(colSums(prop.table(nrc_data_campaign[, 1:8]))), 
+  cex.names = 0.7, 
+  las = 1, 
+  col=heat.colors(8), 
+  main = "Emotions in Trump's tweets before he became president", xlab="Percentage"
+)
+
+
+pie_graph <- data.frame(emotion = names(sort(colSums(prop.table(nrc_data_campaign[, 9:10])))), proportion = colSums(prop.table(nrc_data_campaign[, 9:10])))
+
+
+ggplot(pie_graph, aes(x="", y=proportion, fill=emotion))+geom_bar(width = 1, stat = "identity")+coord_polar("y", start=0)+scale_fill_brewer(palette="Blues")+theme_minimal()
+
+```
+
+We chose nrc as our standard lexicon because nrc will give us more than just positive and negative. It will result in 8 major types of emotions and 2 of positive and negative. We chose all tweets with emotion score above zero
+
+We suprisingly found out that his major emotion was trust which is not what we expected at the beginning. His positive emotion took about 60% of the tweets. Then we started to looking at what are some of his emotion after he became the president. We used all his tweets after he became the president. His anger tweets at this point is about 11% before he became president.
+
+```{r}
+campaign =  sort(colSums(prop.table(nrc_data_campaign[, 1:8])))
+president = sort(colSums(prop.table(nrc_data_president[, 1:8])))
+
+test2 <- rbind(campaign,president)
+
+barplot(test2,beside=T, main = "Sentiment Analysis in two time periods", las = 2, cex.names = 0.8, ylab = "Frequency")
+legend("topleft", inset=.02, 
+   c("Campaign", "Presidency"), fill = c("black", "grey"),cex=0.8)
+
+```
+
+
+```{r}
+library(syuzhet)
+
+president_text <- presidentdf$text
+
+nrc_data_president <- get_nrc_sentiment(president_text)
+
+#Angry tweets
+angry_items <- which(nrc_data_president$anger > 0)
+
+#Anticipation tweets
+anticipation_items <- which(nrc_data_president$anticipation > 0)
+
+#disgust tweets
+disgust_items <- which(nrc_data_president$disgust > 0)
+
+#Joy tweets
+joy_items <- which(nrc_data_president$joy > 0)
+
+#Sadness tweets
+sadness_items <- which(nrc_data_president$sadness > 0)
+
+#Suprise tweets
+surprise_items <- which(nrc_data_president$surprise > 0)
+
+#Trust tweets
+trust_items <- which(nrc_data_president$trust > 0)
+
+barplot(
+  sort(colSums(prop.table(nrc_data_president[, 1:8]))), 
+  cex.names = 0.7, 
+  las = 1, 
+  col=heat.colors(8), 
+  main = "Emotions in Trump's tweets after he became president", xlab="Percentage"
+)
+
+
+pie_graph <- data.frame(emotion = names(sort(colSums(prop.table(nrc_data_president[, 9:10])))), proportion = colSums(prop.table(nrc_data_campaign[, 9:10])))
+
+
+ggplot(pie_graph, aes(x="", y=proportion, fill=emotion))+geom_bar(width = 1, stat = "identity")+coord_polar("y", start=0)+scale_fill_brewer(palette="Blues")+theme_minimal()
+```
+
+We can see from the graph that his anger tweets increased to around 13% after he became president which make sense that he always getting upset with our government. He even shutted down the government recently because of the lack of fund on border wall.
+
+However, we recently read a study suspect that president trump used to use Android for his own tweets and his team will tweet through different devices. Let's see if there any difference in sentiment between different devices.
+
+we knew that President Trump switched to IOS after March 8th 2018. We will just focusing on the period before that date.
+
+```{r}
+trump.new <- trump %>% filter(created_at <= "2017-03-25")
+```
+
+Firstly, let'see what happened to tweets from Android
+
+```{r}
+####################
+####################
+# Android sentiment
+Android <- trump.new %>% filter(source == "Twitter for Android")
+
+# get rid of URL
+android_text <- Android %>% mutate(text = str_replace_all(text, "https?://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  filter(!str_detect(text, "^(\"|RT)"))
+
+nrc_data_android <- get_nrc_sentiment(android_text$text)
+
+#Angry tweets
+angry_items <- which(nrc_data_android$anger > 0)
+
+anticipation_items <- which(nrc_data_android$anticipation >0)
+
+disgust_items <- which(nrc_data_android$disgust >0)
+
+joy_items <- which(nrc_data_android$joy >0)
+
+sadness_items <- which(nrc_data_android$sadness >0)
+
+surprise_items <- which(nrc_data_android$surprise >0)
+
+trust_items <- which(nrc_data_android$trust >0)
+
+barplot(
+  sort(colSums(prop.table(nrc_data_android[, 1:8]))), 
+  horiz = TRUE, 
+  cex.names = 0.7, 
+  las = 1, 
+  col=heat.colors(8), 
+  main = "Emotions in Trump's tweets(Android)", xlab="Percentage"
+)
+
+pie_graph <- data.frame(emotion = names(sort(colSums(prop.table(nrc_data_android[, 9:10])))), proportion = colSums(prop.table(nrc_data_campaign[, 9:10])))
+
+
+ggplot(pie_graph, aes(x="", y=proportion, fill=emotion))+geom_bar(width = 1, stat = "identity")+coord_polar("y", start=0)+scale_fill_brewer(palette="Blues")+theme_minimal()
+
+```
+
+We can see from bar plot that his anger tweets increased to 14%-ish, but his suprise tweets has became to the least tweets from Android devices. 
+
+Let's check out other devices:
+
+```{r}
+####################
+####################
+# Android sentiment
+non_Android <- trump.new %>% filter(source != "Twitter for Android")
+
+# get rid of URL
+non_android_text <- non_Android %>% mutate(text = str_replace_all(text, "https?://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  filter(!str_detect(text, "^(\"|RT)")) 
+
+nrc_data_non_android <- get_nrc_sentiment(non_android_text$text)
+
+#Angry tweets
+angry_items <- which(nrc_data_non_android$anger > 0)
+
+anticipation_items <- which(nrc_data_non_android$anticipation >0)
+
+disgust_items <- which(nrc_data_non_android$disgust >0)
+
+joy_items <- which(nrc_data_non_android$joy >0)
+
+sadness_items <- which(nrc_data_non_android$sadness >0)
+
+surprise_items <- which(nrc_data_non_android$surprise >0)
+
+trust_items <- which(nrc_data_non_android$trust >0)
+
+barplot(
+  sort(colSums(prop.table(nrc_data_non_android[, 1:8]))), 
+  horiz = TRUE, 
+  cex.names = 0.7, 
+  las = 1, 
+  col=heat.colors(8), 
+  main = "Emotions in Trump's tweets(Non-Android)", xlab="Percentage"
+)
+
+pie_graph <- data.frame(emotion = names(sort(colSums(prop.table(nrc_data_non_android[, 9:10])))), proportion = colSums(prop.table(nrc_data_campaign[, 9:10])))
+
+
+ggplot(pie_graph, aes(x="", y=proportion, fill=emotion))+geom_bar(width = 1, stat = "identity")+coord_polar("y", start=0)+scale_fill_brewer(palette="Blues")+theme_minimal()
+
+
+```
+
+
+```{r}
+
+nrc_android =  sort(colSums(prop.table(nrc_data_android[, 1:8])))
+nrc_non_android = sort(colSums(prop.table(nrc_data_non_android[, 1:8])))
+
+test2 <- rbind(nrc_android, nrc_non_android)
+
+barplot(test2,beside=T, main = "Android vs Non-Android", las = 2, cex.names = 0.8, ylab = "Frequency")
+legend("topleft", inset=.02, 
+   c("Android", "Non-Android"), fill = c("black", "grey"),cex=0.8)
+```
+
+From what we see from bar graphs, tweets from another devices are usually good and positive tweets which is different from android devices.
+
+```{r}
+
+all_words_android <- Android %>% unnest_tokens(word, text, token = "regex") %>% filter(!word %in% stop_words$word, str_detect(word, "[a-z]"))
+
+a = all_words_android %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(month = round_date(created_at, "month")) %>%
+  summarize(sum_sentiment = sum(score), words = n()) %>%
+  filter(words >= 10)
+  
+  
+all_words_non_android <- non_Android %>% unnest_tokens(word, text, token = "regex") %>% filter(!word %in% stop_words$word, str_detect(word, "[a-z]"))
+
+b = all_words_non_android %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(month = round_date(created_at, "month")) %>%
+  summarize(sum_sentiment = sum(score), words = n()) %>%
+  filter(words >= 10)
+
+a$if_android = replicate(nrow(a), TRUE)
+b$if_android = replicate(nrow(b), FALSE)
+
+time.series <- rbind(a,b)
+
+ggplot(time.series, aes(month, sum_sentiment, col = if_android)) + geom_line() + geom_hline(color = "red", lty = 2, yintercept = 0) + labs(x = "Time", y = "sentiment score",title = "sentiment over time")
+
+
+
+```
+
+We can also see that the overall emotion throughout time are totally different. Non-Android devices nearly always give postitive tweets. In contrasr, Android devices did not. Therefore, even though we don't know if president Trump only tweets through Android, we at least can conclude that those tweets are from different two person. 
